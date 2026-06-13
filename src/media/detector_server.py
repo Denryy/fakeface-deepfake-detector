@@ -107,7 +107,7 @@ PAGE = """<!doctype html>
       <div class="track"><i id="pfbar"></i><span class="mark" id="pfmark"></span></div>
       <div class="row"><span>Синтетический голос</span><b id="pv">—</b></div>
       <div class="track"><i id="pvbar"></i><span class="mark" id="pvmark"></span></div>
-      <div class="thr">Порог: <input id="thr" type="range" min="0" max="1" step="0.01" value="0.5"/><b id="thrv">0.50</b></div>
+      <div class="thr" style="justify-content:flex-start;gap:6px;color:var(--mut)">Порог детекции: <b style="color:var(--txt)">0.50</b> · риск-сигнал при превышении</div>
     </div>
 
     <div id="flags" class="flags" style="display:none"></div>
@@ -122,8 +122,7 @@ PAGE = """<!doctype html>
 <script>
 const $=id=>document.getElementById(id);
 const file=$('file'),drop=$('drop'),go=$('go'),fname=$('fname'),spin=$('spin'),
-      verdict=$('verdict'),prob=$('prob'),flags=$('flags'),detWrap=$('detWrap'),det=$('det'),
-      thr=$('thr'),thrv=$('thrv');
+      verdict=$('verdict'),prob=$('prob'),flags=$('flags'),detWrap=$('detWrap'),det=$('det');
 const LB={has_face:'Лицо в кадре',possible_deepfake:'Возможный дипфейк',
           synthetic_voice_suspected:'Синтетический голос',lip_sync_anomaly:'Рассинхрон губ'};
 let chosen=null, last=null;   // last = {a, d, pf, pv, hasFace, hasAudio}
@@ -138,7 +137,7 @@ function colour(p){ return p>=.66?'#ff6b6b':p>=.4?'#f5a623':'#3ddc84'; }
 
 function render(){
   if(!last) return;
-  const t=parseFloat(thr.value); thrv.textContent=t.toFixed(2);
+  const t = last.threshold!=null ? last.threshold : 0.5;
   const pf=last.pf, pv=last.pv;
   $('pf').textContent=(pf*100).toFixed(0)+'%';
   $('pv').textContent=last.hasAudio?((pv*100).toFixed(0)+'%'):'нет аудио';
@@ -161,7 +160,6 @@ function render(){
     ? '⚠️ При пороге '+t.toFixed(2)+' есть risk-сигналы подделки — на ручную проверку.'
     : '✓ При пороге '+t.toFixed(2)+' явных признаков подделки нет (не гарантия подлинности).';
 }
-thr.addEventListener('input',render);
 
 go.addEventListener('click', async ()=>{
   if(!chosen) return;
@@ -173,8 +171,7 @@ go.addEventListener('click', async ()=>{
     if(!r.ok) throw new Error('HTTP '+r.status);
     const j=await r.json(); const a=j.media_anomalies||{}, d=j.details||{};
     last={ a, d, pf:(d.avg_fake_probability||0), pv:(d.voice_fake_probability||0),
-           hasFace:!!a.has_face, hasAudio:!!d.has_audio };
-    thr.value = d.threshold!=null ? d.threshold : 0.5;
+           hasFace:!!a.has_face, hasAudio:!!d.has_audio, threshold:(d.threshold!=null?d.threshold:0.5) };
     det.textContent=JSON.stringify(d,null,2);
     verdict.style.display='block'; prob.style.display='block'; flags.style.display='grid'; detWrap.style.display='block';
     render();
