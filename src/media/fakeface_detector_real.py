@@ -32,7 +32,7 @@ _PROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 #   NPR (CVPR'24) — силён на СГЕНЕРИРОВАННЫХ лицах (GAN/diffusion).
 #   DFDC (selimsef, 1-е место DFDC) — EfficientNet-B7, силён на FACE-SWAP.
 NPR_WEIGHTS = os.path.join(_PROOT, "vendor", "NPR", "NPR.pth")
-DFDC_WEIGHTS = os.path.join(_PROOT, "vendor", "dfdc", "weights", "b7_ns_36")
+DFDC_WEIGHTS_DIR = os.path.join(_PROOT, "vendor", "dfdc", "weights")  # ансамбль b7*
 
 # Ансамбль готовых deepfake-моделей (HuggingFace, ViT). У каждой свой режим:
 #   crop  — классифицирует кроп лица (модель обучена на лицах);
@@ -280,13 +280,15 @@ def analyze_video(
         except Exception:  # noqa: BLE001 — опционально
             pass
 
-    # DFDC (опционально, EfficientNet-B7) — силён на face-swap. Кормим кропом с
-    # margin 30% (как в обучении DFDC), а не плотным лицом.
-    if face_imgs_m and os.path.exists(DFDC_WEIGHTS):
+    # DFDC (опционально, АНСАМБЛЬ EfficientNet-B7) — face-swap. Кроп с margin 30%.
+    import glob as _glob
+    _dfdc_w = sorted(_glob.glob(os.path.join(DFDC_WEIGHTS_DIR, "b7*")))
+    if face_imgs_m and _dfdc_w:
         try:
-            from dfdc_model import dfdc_fake_probs
-            p = dfdc_fake_probs(face_imgs_m, DFDC_WEIGHTS, _dev)
-            per_model["DFDC (face-swap)"] = round(sum(p) / len(p), 3)
+            from dfdc_model import dfdc_fake_probs_ensemble
+            avg_list, _ = dfdc_fake_probs_ensemble(face_imgs_m, _dfdc_w, _dev)
+            if avg_list:
+                per_model["DFDC (face-swap x%d)" % len(_dfdc_w)] = round(sum(avg_list) / len(avg_list), 3)
         except Exception:  # noqa: BLE001 — опционально
             pass
 

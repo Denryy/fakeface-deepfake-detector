@@ -20,7 +20,7 @@ ENCODER = "tf_efficientnet_b7.ns_jft_in1k"
 FEATURES = 2560
 INPUT = 380
 
-_cache = None  # (model, device, load_report)
+_cache: dict = {}  # weights_path -> (model, device, load_report)
 
 
 class DFDCNet(nn.Module):
@@ -39,10 +39,9 @@ class DFDCNet(nn.Module):
 
 
 def load_dfdc(weights_path: str, device: str = "cpu"):
-    """Создать DFDCNet и загрузить ТОЛЬКО веса (weights_only=True)."""
-    global _cache
-    if _cache is not None:
-        return _cache
+    """Создать DFDCNet и загрузить ТОЛЬКО веса (weights_only=True). Кэш по пути."""
+    if weights_path in _cache:
+        return _cache[weights_path]
     model = DFDCNet()
     # checkpoint содержит numpy-метаданные (epoch и т.п.) как numpy scalar/dtype —
     # это БЕЗОПАСНЫЕ типы данных (не код). Разрешаем их с ЯВНЫМ именем (numpy 2.x
@@ -73,22 +72,43 @@ def load_dfdc(weights_path: str, device: str = "cpu"):
     state = {k.replace("module.", "", 1): v for k, v in state.items()}
     report = model.load_state_dict(state, strict=False)
     model.to(device).eval()
-    _cache = (model, device, report)
-    return _cache
+    _cache[weights_path] = (model, device, report)
+    return _cache[weights_path]
 
 
-def dfdc_fake_probs(pil_images: list, weights_path: str, device: str = "cpu") -> list:
-    """Вернуть вероятности 'fake' (sigmoid) для списка PIL-изображений (кропы лиц)."""
+def _tf():
     from torchvision import transforms
-
-    tf = transforms.Compose([
+    return transforms.Compose([
         transforms.Resize((INPUT, INPUT)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
+
+
+def dfdc_fake_probs(pil_images: list, weights_path: str, device: str = "cpu") -> list:
+    """Вероятности 'fake' для одной модели (по списку кропов лиц)."""
+    tf = _tf()
     model, dev, _ = load_dfdc(weights_path, device)
     batch = torch.stack([tf(im.convert("RGB")) for im in pil_images]).to(dev)
     with torch.no_grad():
         probs = torch.sigmoid(model(batch).squeeze(-1))
     vals = probs.tolist()
     return [float(v) for v in (vals if isinstance(vals, list) else [vals])]
+
+
+def dfdc_fake_probs_ensemble(pil_images: list, weights_paths: list, device: str = "cpu") -> tuple:
+    """Среднее по нескольким B7. Возвращает (per_image_avg, per_model_overall_avg)."""
+    if not weights_paths:
+        return [], {}
+    per_model = {}        # path -> список вероятностей по изображениям
+    for wp in weights_paths:
+        try:
+            per_model[wp] = dfdc_fake_probs(pil_images, wp, device)
+        except Exception:  # noqa: BLE001 — сбойная модель пропускается
+            continue
+    if not per_model:
+        return [], {}
+    n = len(pil_images)
+    avg = [sum(per_model[wp][i] for wp in per_model) / len(per_model) for i in range(n)]
+    overall = {wp.split("/")[-1].split("\\")[-1]: round(sum(v) / len(v), 3) for wp, v in per_model.items()}
+    return avg, overall
