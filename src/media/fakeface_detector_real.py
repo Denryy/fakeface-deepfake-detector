@@ -27,12 +27,12 @@ import json
 import os
 from typing import Optional
 
-# Опциональные локальные веса NPR (CVPR'24, сильны на сгенерированных лицах).
-# В репозиторий не входят (vendor/ в .gitignore); скачиваются отдельно.
-NPR_WEIGHTS = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "vendor", "NPR", "NPR.pth",
-)
+_PROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Опциональные локальные веса (в репозиторий не входят — vendor/ в .gitignore):
+#   NPR (CVPR'24) — силён на СГЕНЕРИРОВАННЫХ лицах (GAN/diffusion).
+#   DFDC (selimsef, 1-е место DFDC) — EfficientNet-B7, силён на FACE-SWAP.
+NPR_WEIGHTS = os.path.join(_PROOT, "vendor", "NPR", "NPR.pth")
+DFDC_WEIGHTS = os.path.join(_PROOT, "vendor", "dfdc", "weights", "b7_ns_36")
 
 # Ансамбль готовых deepfake-моделей (HuggingFace, ViT). У каждой свой режим:
 #   crop  — классифицирует кроп лица (модель обучена на лицах);
@@ -255,15 +255,25 @@ def analyze_video(
         except Exception:  # noqa: BLE001 — одна сбойная модель не должна валить остальные
             continue
 
-    # NPR (опционально, локальные веса) — силён на сгенерированных лицах (GAN/diffusion).
+    import torch as _t
+    _dev = "cuda" if _t.cuda.is_available() else "cpu"
+
+    # NPR (опционально) — силён на сгенерированных лицах (GAN/diffusion).
     if face_imgs and os.path.exists(NPR_WEIGHTS):
         try:
-            import torch as _t
             from npr_model import npr_fake_probs
-            dev = "cuda" if _t.cuda.is_available() else "cpu"
-            np_probs = npr_fake_probs(face_imgs, NPR_WEIGHTS, dev)
-            per_model["NPR (generated)"] = round(sum(np_probs) / len(np_probs), 3)
-        except Exception:  # noqa: BLE001 — NPR опционален
+            p = npr_fake_probs(face_imgs, NPR_WEIGHTS, _dev)
+            per_model["NPR (generated)"] = round(sum(p) / len(p), 3)
+        except Exception:  # noqa: BLE001 — опционально
+            pass
+
+    # DFDC (опционально, EfficientNet-B7) — силён на face-swap (FF++/DFDC).
+    if face_imgs and os.path.exists(DFDC_WEIGHTS):
+        try:
+            from dfdc_model import dfdc_fake_probs
+            p = dfdc_fake_probs(face_imgs, DFDC_WEIGHTS, _dev)
+            per_model["DFDC (face-swap)"] = round(sum(p) / len(p), 3)
+        except Exception:  # noqa: BLE001 — опционально
             pass
 
     avg = max(per_model.values()) if per_model else 0.0
