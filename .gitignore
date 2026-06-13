@@ -1,0 +1,26 @@
+# Understand-Anything local analysis cache (regenerable; hooks read it from disk)
+.understand-anything/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local venv for the real video detector (heavy; recreate via requirements)
+.venv/
+
+# Heavy media — never commit (per README safety rules; keep only links/metadata)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.m4a
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

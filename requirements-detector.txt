@@ -1,0 +1,31 @@
+# Зависимости РЕАЛЬНОГО видео-детектора (src/media/fakeface_detector_real.py).
+# Stub-детектор (fakeface_detector_stub.py) их НЕ требует — он на stdlib.
+#
+# Зависимости также объявлены в pyproject.toml.
+# Установка через uv (рекомендуется), venv с доступом к системному torch:
+#   uv venv --system-site-packages
+#   uv pip install -r requirements-detector.txt
+#
+# torch/torchvision должны быть собраны под твою CUDA (cu124). Если их нет в
+# системе — поставить с индекса PyTorch:
+#   pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+#
+# ВАЖНО: transformers 5.x требует torch>=2.7 (torch.float8_e8m0fnu) — несовместим
+# с torch 2.6, поэтому закреплён transformers 4.49.x.
+
+opencv-python-headless>=4.13
+transformers==4.49.0
+huggingface_hub<1.0
+tokenizers<0.22
+
+# Аудио-ветка (synthetic_voice_suspected):
+imageio-ffmpeg          # бинарь ffmpeg для извлечения аудио из видео
+soundfile               # чтение wav
+
+# Модели (скачиваются из HuggingFace при первом запуске):
+#   видео: prithivMLmods/Deep-Fake-Detector-Model   (ViT, по кропам лиц)
+#   аудио: motheecreator/Deepfake-audio-detection    (Wav2Vec2, анти-спуфинг)
+
+# --- только для генерации тестового синтетического голоса (НЕ нужны в проде) ---
+# gtts        # онлайн TTS (нужен интернет)
+# pyttsx3     # офлайн SAPI TTS

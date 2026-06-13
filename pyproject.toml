@@ -1,0 +1,37 @@
+[project]
+name = "fakeface-deepfake-detector"
+version = "0.1.0"
+description = "Deepfake video+audio detector and labeled dataset (Media Fraud Watch, Case 9 — Student 6 media layer)"
+readme = "README.md"
+requires-python = ">=3.13"
+
+# Зависимости РЕАЛЬНОГО детектора (src/media/fakeface_detector_real.py).
+# Stub-детектор (fakeface_detector_stub.py) зависимостей не требует — чистый stdlib.
+dependencies = [
+    "opencv-python-headless>=4.13",
+    "transformers==4.49.0",   # 5.x требует torch>=2.7 (torch.float8_e8m0fnu) — несовместимо с torch 2.6
+    "huggingface-hub<1.0",
+    "tokenizers<0.22",
+    "imageio-ffmpeg",          # бинарь ffmpeg для извлечения аудио
+    "soundfile",               # чтение wav
+]
+
+[project.optional-dependencies]
+# GPU-стек для self-contained сборки на ЧИСТОЙ машине (NVIDIA + CUDA 12.4).
+# Ставится: uv pip install ".[gpu]"   (скачает torch ~2.5ГБ)
+gpu = ["torch==2.6.0", "torchvision==0.21.0"]
+# Только для генерации тестового синтетического голоса (НЕ нужны в проде):
+test-voice = ["gtts", "pyttsx3"]
+
+[tool.uv]
+package = false
+
+# torch/torchvision берутся из индекса PyTorch cu124 (только когда запрошены явно).
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
