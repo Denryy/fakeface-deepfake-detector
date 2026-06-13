@@ -26,10 +26,17 @@ import argparse
 import json
 from typing import Optional
 
-# Готовая предобученная модель real/fake ЛИЦ (HuggingFace, ViT).
-# Выбрана по сравнению на реальном видео: даёт корректно низкую P(Fake) на
-# кропах лица (см. findings — режим важнее модели; эта модель обучена на лицах).
-DEEPFAKE_MODEL = "prithivMLmods/Deep-Fake-Detector-Model"
+# Ансамбль готовых deepfake-моделей (HuggingFace, ViT). У каждой свой режим:
+#   crop  — классифицирует кроп лица (модель обучена на лицах);
+#   frame — классифицирует целый кадр (модель обучена на полных изображениях).
+# Итог = МАКСИМУМ по моделям ("если хоть одна заподозрила") -> выше recall,
+# чтобы реже пропускать дипфейки. Цена — выше шанс ложного срабатывания.
+FACE_MODELS = [
+    {"id": "prithivMLmods/Deep-Fake-Detector-Model", "mode": "crop"},
+    {"id": "dima806/deepfake_vs_real_image_detection", "mode": "frame"},
+    {"id": "Wvolf/ViT_Deepfake_Detection", "mode": "frame"},
+]
+DEEPFAKE_MODEL = FACE_MODELS[0]["id"]  # для совместимости/логов
 # Готовая audio-anti-spoofing модель (Wav2Vec2). Выбрана по тесту: реальный
 # голос -> P(fake)=0.0, синтетический (gTTS/SAPI) -> P(fake)=1.0.
 AUDIO_MODEL = "motheecreator/Deepfake-audio-detection"
@@ -40,31 +47,27 @@ AUDIO_SR = 16000
 AUDIO_MAX_SECONDS = 20
 MIN_FACE = (60, 60)
 
-_model = None         # ленивая ViT-модель (видео)
-_proc = None          # ленивый image processor
-_device = None        # "cuda" / "cpu"
-_cascade = None       # ленивый каскад лиц
-_vmodel = None        # ленивая audio-модель
-_vfe = None           # ленивый audio feature extractor
-_vdevice = None       # "cuda" / "cpu" (audio)
+_face_cache: dict = {}  # id -> (model, processor, device)
+_device = None          # "cuda" / "cpu"
+_cascade = None         # ленивый каскад лиц
+_vmodel = None          # ленивая audio-модель
+_vfe = None             # ленивый audio feature extractor
+_vdevice = None         # "cuda" / "cpu" (audio)
 
 
-def _load_classifier():
-    """Загрузить (один раз) HF-модель + image processor на GPU при наличии.
-
-    Используется прямой путь (без transformers.pipeline / torchvision):
-    slow ViT image processor работает на PIL/numpy.
-    """
-    global _model, _proc, _device
-    if _model is not None:
-        return _model, _proc, _device
+def _load_face_model(model_id: str):
+    """Лениво загрузить (и закэшировать) одну HF-модель + image processor на GPU."""
+    global _device
+    if model_id in _face_cache:
+        return _face_cache[model_id]
     import torch
     from transformers import AutoImageProcessor, AutoModelForImageClassification
-    _proc = AutoImageProcessor.from_pretrained(DEEPFAKE_MODEL, use_fast=False)
-    _model = AutoModelForImageClassification.from_pretrained(DEEPFAKE_MODEL)
+    proc = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+    model = AutoModelForImageClassification.from_pretrained(model_id)
     _device = "cuda" if torch.cuda.is_available() else "cpu"
-    _model.to(_device).eval()
-    return _model, _proc, _device
+    model.to(_device).eval()
+    _face_cache[model_id] = (model, proc, _device)
+    return _face_cache[model_id]
 
 
 def _face_cascade():
@@ -116,10 +119,10 @@ def detect_face_crops(frame_bgr) -> list:
     return crops
 
 
-def _classify(images: list) -> list:
-    """Прогнать PIL-изображения через модель -> список вероятностей класса 'fake'."""
+def _classify_with(model_id: str, images: list) -> list:
+    """Прогнать PIL-изображения через указанную модель -> список вероятностей 'fake'."""
     import torch
-    model, proc, device = _load_classifier()
+    model, proc, device = _load_face_model(model_id)
     inputs = proc(images=images, return_tensors="pt").to(device)
     with torch.no_grad():
         probs = torch.softmax(model(**inputs).logits, dim=-1)
@@ -215,6 +218,9 @@ def analyze_video(
     `synthetic_voice_suspected` (аудио, если `analyze_audio`). `lip_sync_anomaly`
     не анализируется (нужен SyncNet) и всегда False.
     """
+    import cv2
+    from PIL import Image
+
     frames = extract_frames(video_path, max_frames)
     if not frames:
         raise RuntimeError("не извлечено ни одного кадра")
@@ -225,17 +231,24 @@ def analyze_video(
         if crops:
             frames_with_face += 1
             face_imgs.append(crops[0])
-
+    whole_imgs = [Image.fromarray(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)) for fr in frames]
     has_face = frames_with_face > 0
-    # Модель обучена на ЛИЦАХ — классифицируем только кропы лиц.
-    # Если лица не найдены, оценку deepfake не выносим (не угадываем по фону).
-    if face_imgs:
-        probs = _classify(face_imgs)
-        avg = sum(probs) / len(probs)
-        possible = avg >= threshold
-        note = "ok"
-    else:
-        avg, possible, note = 0.0, False, "no_face: оценка по лицу пропущена"
+
+    # Ансамбль: каждая модель в своём режиме (crop -> лица, frame -> целые кадры),
+    # итог = МАКСИМУМ по моделям (если хоть одна заподозрила) -> выше recall.
+    per_model = {}
+    for m in FACE_MODELS:
+        imgs = face_imgs if m["mode"] == "crop" else whole_imgs
+        if not imgs:
+            continue
+        try:
+            probs = _classify_with(m["id"], imgs)
+            per_model[m["id"]] = round(sum(probs) / len(probs), 3)
+        except Exception:  # noqa: BLE001 — одна сбойная модель не должна валить остальные
+            continue
+    avg = max(per_model.values()) if per_model else 0.0
+    possible = avg >= threshold
+    note = "ok" if per_model else "no_face/model: оценка по лицу пропущена"
 
     synthetic_voice, voice_p, has_audio = (
         _analyze_voice(video_path, voice_threshold) if analyze_audio else (False, None, False)
@@ -251,9 +264,10 @@ def analyze_video(
         "frames_analyzed": len(frames),
         "frames_with_face": frames_with_face,
         "faces_classified": len(face_imgs),
-        "avg_fake_probability": round(avg, 3),
+        "avg_fake_probability": round(avg, 3),   # ансамбль = максимум по моделям
+        "face_models": per_model,                 # разбивка вероятностей по моделям
+        "ensemble": "max",
         "threshold": threshold,
-        "face_model": DEEPFAKE_MODEL,
         "has_audio": has_audio,
         "voice_fake_probability": voice_p,
         "voice_threshold": voice_threshold,
