@@ -20,6 +20,8 @@ dependencies = [
 # GPU-стек для self-contained сборки на ЧИСТОЙ машине (NVIDIA + CUDA 12.4).
 # Ставится: uv pip install ".[gpu]"   (скачает torch ~2.5ГБ)
 gpu = ["torch==2.6.0", "torchvision==0.21.0"]
+# Веб-UI для загрузки видео (src/media/detector_server.py):
+ui = ["fastapi", "uvicorn[standard]", "python-multipart"]
 # Только для генерации тестового синтетического голоса (НЕ нужны в проде):
 test-voice = ["gtts", "pyttsx3"]
 
