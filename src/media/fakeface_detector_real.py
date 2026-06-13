@@ -24,7 +24,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from typing import Optional
+
+# Опциональные локальные веса NPR (CVPR'24, сильны на сгенерированных лицах).
+# В репозиторий не входят (vendor/ в .gitignore); скачиваются отдельно.
+NPR_WEIGHTS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "vendor", "NPR", "NPR.pth",
+)
 
 # Ансамбль готовых deepfake-моделей (HuggingFace, ViT). У каждой свой режим:
 #   crop  — классифицирует кроп лица (модель обучена на лицах);
@@ -246,6 +254,18 @@ def analyze_video(
             per_model[m["id"]] = round(sum(probs) / len(probs), 3)
         except Exception:  # noqa: BLE001 — одна сбойная модель не должна валить остальные
             continue
+
+    # NPR (опционально, локальные веса) — силён на сгенерированных лицах (GAN/diffusion).
+    if face_imgs and os.path.exists(NPR_WEIGHTS):
+        try:
+            import torch as _t
+            from npr_model import npr_fake_probs
+            dev = "cuda" if _t.cuda.is_available() else "cpu"
+            np_probs = npr_fake_probs(face_imgs, NPR_WEIGHTS, dev)
+            per_model["NPR (generated)"] = round(sum(np_probs) / len(np_probs), 3)
+        except Exception:  # noqa: BLE001 — NPR опционален
+            pass
+
     avg = max(per_model.values()) if per_model else 0.0
     possible = avg >= threshold
     note = "ok" if per_model else "no_face/model: оценка по лицу пропущена"
