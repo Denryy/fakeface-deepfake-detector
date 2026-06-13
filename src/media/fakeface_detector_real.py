@@ -114,15 +114,26 @@ def extract_frames(video_path: str, max_frames: int = DEFAULT_MAX_FRAMES) -> lis
     return frames
 
 
-def detect_face_crops(frame_bgr) -> list:
-    """Вернуть PIL-изображения (RGB) найденных в кадре лиц."""
+def detect_face_crops(frame_bgr, margin: float = 0.0) -> list:
+    """Вернуть PIL-изображения (RGB) найденных лиц.
+
+    `margin` расширяет рамку лица на долю с каждой стороны (0.3 = +30%, как в
+    обучении DFDC: модель ждёт контекст вокруг лица, а не плотный кроп).
+    """
     import cv2
     from PIL import Image
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     faces = _face_cascade().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=MIN_FACE)
+    h_img, w_img = frame_bgr.shape[:2]
     crops = []
     for (x, y, w, h) in faces:
-        rgb = cv2.cvtColor(frame_bgr[y:y + h, x:x + w], cv2.COLOR_BGR2RGB)
+        if margin > 0:
+            mx, my = int(w * margin), int(h * margin)
+            x0, y0 = max(0, x - mx), max(0, y - my)
+            x1, y1 = min(w_img, x + w + mx), min(h_img, y + h + my)
+        else:
+            x0, y0, x1, y1 = x, y, x + w, y + h
+        rgb = cv2.cvtColor(frame_bgr[y0:y1, x0:x1], cv2.COLOR_BGR2RGB)
         crops.append(Image.fromarray(rgb))
     return crops
 
@@ -233,12 +244,14 @@ def analyze_video(
     if not frames:
         raise RuntimeError("не извлечено ни одного кадра")
 
-    face_imgs, frames_with_face = [], 0
+    face_imgs, face_imgs_m, frames_with_face = [], [], 0
     for fr in frames:
-        crops = detect_face_crops(fr)
+        crops = detect_face_crops(fr)            # плотный кроп (для ViT/NPR)
         if crops:
             frames_with_face += 1
             face_imgs.append(crops[0])
+            mc = detect_face_crops(fr, margin=0.3)  # +30% контекста (для DFDC)
+            face_imgs_m.append(mc[0] if mc else crops[0])
     whole_imgs = [Image.fromarray(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)) for fr in frames]
     has_face = frames_with_face > 0
 
@@ -267,11 +280,12 @@ def analyze_video(
         except Exception:  # noqa: BLE001 — опционально
             pass
 
-    # DFDC (опционально, EfficientNet-B7) — силён на face-swap (FF++/DFDC).
-    if face_imgs and os.path.exists(DFDC_WEIGHTS):
+    # DFDC (опционально, EfficientNet-B7) — силён на face-swap. Кормим кропом с
+    # margin 30% (как в обучении DFDC), а не плотным лицом.
+    if face_imgs_m and os.path.exists(DFDC_WEIGHTS):
         try:
             from dfdc_model import dfdc_fake_probs
-            p = dfdc_fake_probs(face_imgs, DFDC_WEIGHTS, _dev)
+            p = dfdc_fake_probs(face_imgs_m, DFDC_WEIGHTS, _dev)
             per_model["DFDC (face-swap)"] = round(sum(p) / len(p), 3)
         except Exception:  # noqa: BLE001 — опционально
             pass
