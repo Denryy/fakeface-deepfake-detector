@@ -44,15 +44,15 @@ A single record flows through several students' tools; Student 6 owns only the m
 ```
 SOURCES.md (id | origin | path | is_fake | note)
   → fakeface_detector_stub.py  → media_anomalies + media risk_signals
-  → [Student 4] ASR/Whisper + OCR → transcript / ocr_text   (consumed, not produced here)
-  → [Student 7] entity regex + risk_engine → entities, risk_score, risk_level
-  → [Student 8] Shadow Graph (face → video → domain → telegram)
+  → [ASR/OCR] ASR/Whisper + OCR → transcript / ocr_text   (consumed, not produced here)
+  → [entity/risk] entity regex + risk_engine → entities, risk_score, risk_level
+  → [Shadow Graph] Shadow Graph (face → video → domain → telegram)
   → one line in deepfake_examples.jsonl
 ```
 
 `fakeface_detector_stub.py` has three parts:
 1. **`analyze_media(...)`** — produces the four `media_anomalies` booleans. Key rule: explicit `*_hint` arguments (from the source label / manual annotation) **always override** the text heuristics — the annotator is the source of truth, the heuristics are only a fallback.
-2. **`media_risk_signals(...)`** — maps anomalies + financial-CTA text markers to the risk signal list. It does **not** compute `risk_score`/`risk_level`; those are left at `0`/`"low"` and recomputed downstream by Student 7's risk_engine.
+2. **`media_risk_signals(...)`** — maps anomalies + financial-CTA text markers to the risk signal list. It does **not** compute `risk_score`/`risk_level`; those are left at `0`/`"low"` and recomputed downstream by the downstream risk engine.
 3. **CLI / `_parse_sources` / `_row_to_record`** — reads the pipe-delimited `SOURCES.md` table (header rows and non-matching lines are skipped) and emits full JSONL records with `review_status: "draft"`.
 
 ## Conventions that cross file boundaries

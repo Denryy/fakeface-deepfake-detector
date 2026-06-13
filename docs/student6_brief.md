@@ -29,7 +29,7 @@
 | `fakeface_detector_stub.py` | `src/media/` | Заглушка-детектор, выдаёт `media_anomalies` |
 | Сырьё | `data/raw/deepfake/` | Список ссылок/файлов, `SOURCES.md` (НЕ заливаем тяжёлые видео в git) |
 
-Минимум по ТЗ: **20 deepfake/fakeface examples**. Целимся в **40** (20 real / 20 fake), чтобы был баланс классов.
+Минимум по спецификации: **20 deepfake/fakeface examples**. Целимся в **40** (20 real / 20 fake), чтобы был баланс классов.
 
 ---
 
@@ -82,9 +82,9 @@ example_id | origin (faceforensics/dfdc/fakeavceleb/synthetic/stock) | url_or_pa
 ```text
 Видео (ссылка/файл)
   ↓
-[Студент 4: Whisper] → transcript        (берёшь готовый или сам прогоняешь)
+[ASR: Whisper] → transcript        (берёшь готовый или сам прогоняешь)
   ↓
-[Студент 4: PaddleOCR] → ocr_text         (текст с кадров: сайт, промокод)
+[OCR: PaddleOCR] → ocr_text         (текст с кадров: сайт, промокод)
   ↓
 fakeface_detector_stub.py
   → media_anomalies:
@@ -93,7 +93,7 @@ fakeface_detector_stub.py
       synthetic_voice_suspected
       lip_sync_anomaly
   ↓
-[Студент 7: regex] → entities (url/domain/telegram/promo/wallet/money)
+[entity/risk: regex] → entities (url/domain/telegram/promo/wallet/money)
   ↓
 risk_signals + risk_score + risk_level
   ↓
@@ -147,7 +147,7 @@ possible_deepfake + financial_call_to_action  → high / critical
 
 ## 7. Формат строки `deepfake_examples.jsonl`
 
-Одна строка = один JSON (единый формат проекта, секция 5 ТЗ). Минимально заполняй:
+Одна строка = один JSON (единый формат проекта, секция 5 спецификации). Минимально заполняй:
 
 ```json
 {
@@ -280,7 +280,7 @@ anomalies = analyze_media(is_fake_hint=True, transcript="я инвестиров
 ## 11. Чек-лист перед сдачей
 
 - [ ] ≥ 40 строк в `deepfake_examples.jsonl` (баланс real/fake).
-- [ ] Каждая строка — валидный JSON, поля по схеме секции 5 ТЗ.
+- [ ] Каждая строка — валидный JSON, поля по схеме секции 5 спецификации.
 - [ ] `media_anomalies` проверены вручную, не только из стаба.
 - [ ] `risk_score` согласован с порогами.
 - [ ] Нет реальных известных лиц / персональных данных.
