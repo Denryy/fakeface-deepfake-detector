@@ -87,7 +87,11 @@ possible_deepfake (+25) + financial_call_to_action  → high/critical
 **Как работает:**
 1. OpenCV извлекает ~16 кадров из видео.
 2. Haar-каскад детектит лица → `has_face`.
-3. Кропы лиц классифицирует предобученная HF-модель `prithivMLmods/Deep-Fake-Detector-Model` (ViT) на GPU (CUDA) → `possible_deepfake` по средней вероятности «Fake».
+3. Кропы лиц классифицирует **ансамбль из 5 моделей** на GPU → `possible_deepfake` = **максимум** по моделям («если хоть одна заподозрила», выше recall):
+   - 3 ViT: `prithivMLmods` (по кропу лица), `dima806`/`Wvolf` (по целому кадру);
+   - **NPR** (CVPR'24) — сильна на сгенерированных лицах (GAN/diffusion);
+   - **DFDC** (selimsef, 7×EfficientNet-B7) — на face-swap, кроп с margin 30%.
+   NPR/DFDC переписаны нашим кодом (`npr_model.py`/`dfdc_model.py`), веса грузятся безопасно (`weights_only=True`), локальные (`vendor/`, не в репо).
 4. **Аудио-ветка:** ffmpeg извлекает голос (16 кГц моно), модель `motheecreator/Deepfake-audio-detection` (Wav2Vec2) → `synthetic_voice_suspected`.
 5. `lip_sync_anomaly` = `false` (нужен SyncNet).
 
@@ -103,8 +107,20 @@ possible_deepfake (+25) + financial_call_to_action  → high/critical
 | dima806 | 0.99 ❌ | 0.002 ✅ |
 | Wvolf | 0.99 ❌ | 0.002 ✅ |
 
-- на реальном видео: `possible_deepfake=false` (P(Fake)=0.28) — ложного срабатывания нет;
-- различение real vs GAN-лицо: 0.088 vs 0.257 — в верную сторону (fake выше).
+- на реальном видео: `possible_deepfake=false` — ложного срабатывания нет (ансамбль max=0.28).
+
+**Покрытие ансамбля (проверено на реальных видео):**
+
+| Кейс | Чем ловится |
+|---|---|
+| Сгенерированное лицо (GAN/diffusion) | ✅ NPR (real 0.006 / GAN 0.996) |
+| Типовой face-swap (напр. дипфейк Обамы) | ✅ DFDC / ViT |
+| **Топовый face-swap** (DeepTomCruise) | ⚠️ по лицу OOD для всех (даже DFDC×7 = 0.03) → ловится **голосом** (1.0) |
+| Реальное видео | ✅ всё `false` (без ложных срабатываний) |
+
+Вывод: разные подделки требуют разных детекторов (generated ≠ face-swap), а топовый
+face-swap по лицу не берут даже SOTA-модели без файнтюна — спасает **мультимодальность**
+(голос). Для лица DeepTomCruise нужен файнтюн на FF++/DFDC (доступ по форме).
 
 **Аудио-ветка** (работает заметно надёжнее видео-ветки):
 
